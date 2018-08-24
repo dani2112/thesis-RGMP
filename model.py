@@ -82,8 +82,8 @@ class Refine(nn.Module):
         sr = self.convFS2(F.relu(s))
         sr = self.convFS3(F.relu(sr))
         s = s + sr
-        
-        m = s + F.upsample(pm, scale_factor=self.scale_factor, mode='bilinear')
+
+        m = s + F.upsample(pm, scale_factor=self.scale_factor, mode='bilinear', align_corners=True)
 
         mr = self.convMM1(F.relu(m))
         mr = self.convMM2(F.relu(mr))
@@ -110,7 +110,7 @@ class Decoder(nn.Module):
     def forward(self, r5, x5, r4, r3, r2):
         x = torch.cat((r5, x5), dim=1)
 
-        x = self.GC(x) 
+        x = self.GC(x)
         r = self.convG1(F.relu(x))
         r = self.convG2(F.relu(r))
         m5 = x + r            # out: 1/32, 64
@@ -122,9 +122,9 @@ class Decoder(nn.Module):
         p3 = self.pred3(F.relu(m3))
         p4 = self.pred4(F.relu(m4))
         p5 = self.pred5(F.relu(m5))
-        
-        p = F.upsample(p2, scale_factor=4, mode='bilinear')
-        
+
+        p = F.upsample(p2, scale_factor=4, mode='bilinear', align_corners=True)
+
         return p, p2, p3, p4, p5
 
 

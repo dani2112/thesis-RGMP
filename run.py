@@ -24,7 +24,7 @@ from utils import ToCudaVariable, ToLabel, DAVIS, upsample, downsample
 
 
 ### set pathes
-DAVIS_ROOT = '../data/davis-2017/data/DAVIS/'
+DAVIS_ROOT = '/home/daniel/thesis-data/DAVIS/'
 palette = Image.open(DAVIS_ROOT + 'Annotations/480p/bear/00000.png').getpalette()
 
 def get_arguments():
@@ -32,7 +32,7 @@ def get_arguments():
     parser.add_argument("-MO", action="store_true", help="Multi-object")
     return parser.parse_args()
 args = get_arguments()
-MO = args.MO 
+MO = args.MO
 
 if MO:
     print('Multi-object VOS on DAVIS-2017 valildation')
@@ -46,10 +46,10 @@ def Encode_MS(val_F1, val_P1, scales):
     for sc in scales:
         if sc != 1.0:
             msv_F1, msv_P1 = downsample([val_F1, val_P1], sc)
-            msv_F1, msv_P1 = ToCudaVariable([msv_F1, msv_P1], volatile=True)
+            msv_F1, msv_P1 = ToCudaVariable([msv_F1, msv_P1])
             ref[sc] = model.module.Encoder(msv_F1, msv_P1)[0]
         else:
-            msv_F1, msv_P1 = ToCudaVariable([val_F1, val_P1], volatile=True)
+            msv_F1, msv_P1 = ToCudaVariable([val_F1, val_P1])
             ref[sc] = model.module.Encoder(msv_F1, msv_P1)[0]
 
     return ref
@@ -60,12 +60,12 @@ def Propagate_MS(ref, val_F2, val_P2, scales):
     for sc in scales:
         if sc != 1.0:
             msv_F2, msv_P2 = downsample([val_F2, val_P2], sc)
-            msv_F2, msv_P2 = ToCudaVariable([msv_F2, msv_P2], volatile=True)
+            msv_F2, msv_P2 = ToCudaVariable([msv_F2, msv_P2])
             r5, r4, r3, r2  = model.module.Encoder(msv_F2, msv_P2)
             e2 = model.module.Decoder(r5, ref[sc], r4, r3, r2)
             msv_E2[sc] = upsample(F.softmax(e2[0], dim=1)[:,1].data.cpu(), (h,w))
         else:
-            msv_F2, msv_P2 = ToCudaVariable([val_F2, val_P2], volatile=True)
+            msv_F2, msv_P2 = ToCudaVariable([val_F2, val_P2])
             r5, r4, r3, r2  = model.module.Encoder(msv_F2, msv_P2)
             e2 = model.module.Decoder(r5, ref[sc], r4, r3, r2)
             msv_E2[sc] = F.softmax(e2[0], dim=1)[:,1].data.cpu()
@@ -105,7 +105,7 @@ def Infer_MO(all_F, all_M, num_frames, num_objects, scales=[0.5, 0.75, 1.0]):
         refs.append(Encode_MS(all_F[:,:,0], all_E[:,o+1,0], scales))
 
     for f in range(0, num_frames-1):
-        ### 1 - all 
+        ### 1 - all
         all_E[:,0,f+1] = 1-Propagate_MS(ref_bg, all_F[:,:,f+1], torch.sum(all_E[:,1:,f], dim=1), scales)
         for o in range(num_objects):
             all_E[:,o+1,f+1] = Propagate_MS(refs[o], all_F[:,:,f+1], all_E[:,o+1,f], scales)
@@ -131,37 +131,37 @@ if torch.cuda.is_available():
     model.cuda()
 
 
-model.load_state_dict(torch.load('weights.pth'))
+model.load_state_dict(torch.load('weights.pth', map_location=lambda storage, loc: storage))
 
 model.eval() # turn-off BN
-for seq, (all_F, all_M, info) in enumerate(Testloader):
-    all_F, all_M = all_F[0], all_M[0]
-    seq_name = info['name'][0]
-    num_frames = info['num_frames'][0]
-    num_objects = info['num_objects'][0]
+with torch.no_grad():
+    for seq, (all_F, all_M, info) in enumerate(Testloader):
+        all_F, all_M = all_F[0], all_M[0]
+        seq_name = info['name'][0]
+        num_frames = info['num_frames'][0]
+        num_objects = info['num_objects'][0]
 
-    tt = time.time()
-    all_E = Infer_MO(all_F, all_M, num_frames, num_objects, scales=[0.5, 0.75, 1.0])
-    print('{} | num_objects: {}, FPS: {}'.format(seq_name, num_objects, (time.time()-tt)/num_frames))
+        tt = time.time()
+        all_E = Infer_MO(all_F, all_M, num_frames, num_objects, scales=[0.5, 0.75, 1.0])
+        print('{} | num_objects: {}, FPS: {}'.format(seq_name, num_objects, (time.time()-tt)/num_frames))
 
-    # Save results for quantitative eval ######################
-    if MO:
-        folder = 'results/MO'
-    else:
-        folder = 'results/SO'    
-    test_path = os.path.join(folder, seq_name)
-    if not os.path.exists(test_path):
-        os.makedirs(test_path)
+        # Save results for quantitative eval ######################
+        if MO:
+            folder = 'results/MO'
+        else:
+            folder = 'results/SO'
+        test_path = os.path.join(folder, seq_name)
+        if not os.path.exists(test_path):
+            os.makedirs(test_path)
 
-    for f in range(num_frames):
-        E = all_E[0,:,f].numpy()
-        # make hard label
-        E = ToLabel(E)
-    
-        (lh,uh), (lw,uw) = info['pad'] 
-        E = E[lh[0]:-uh[0], lw[0]:-uw[0]]
+        for f in range(num_frames):
+            E = all_E[0,:,f].numpy()
+            # make hard label
+            E = ToLabel(E)
 
-        img_E = Image.fromarray(E)
-        img_E.putpalette(palette)
-        img_E.save(os.path.join(test_path, '{:05d}.png'.format(f)))
+            (lh,uh), (lw,uw) = info['pad']
+            E = E[lh[0]:-uh[0], lw[0]:-uw[0]]
 
+            img_E = Image.fromarray(E)
+            img_E.putpalette(palette)
+            img_E.save(os.path.join(test_path, '{:05d}.png'.format(f)))

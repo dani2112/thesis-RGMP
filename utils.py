@@ -29,11 +29,11 @@ def ToLabel(E):
     fgs = np.argmax(E, axis=0).astype(np.float32)
     return fgs.astype(np.uint8)
 
-def ToCudaVariable(xs, volatile=False):
+def ToCudaVariable(xs):
     if torch.cuda.is_available():
-        return [Variable(x.cuda(), volatile=volatile) for x in xs]
+        return [Variable(x.cuda()) for x in xs]
     else:
-        return [Variable(x, volatile=volatile) for x in xs]
+        return [Variable(x) for x in xs]
 
 def upsample(x, size):
     x = x.numpy()[0]
@@ -46,11 +46,11 @@ def downsample(xs, scale):
         return xs
 
     # find new size dividable by 32
-    h = xs[0].size()[2] 
+    h = xs[0].size()[2]
     w = xs[0].size()[3]
-    
+
     new_h = int(h * scale)
-    new_w = int(w * scale) 
+    new_w = int(w * scale)
     new_h = new_h + 32 - new_h % 32
     new_w = new_w + 32 - new_w % 32
 
@@ -110,7 +110,7 @@ class DAVIS(data.Dataset):
             num_objects = 1
         info['num_objects'] = num_objects
 
-        
+
         raw_frames = np.empty((self.num_frames[video],)+self.shape[video]+(3,), dtype=np.float32)
         raw_masks = np.empty((self.num_frames[video],)+self.shape[video], dtype=np.uint8)
         for f in range(self.num_frames[video]):
@@ -129,7 +129,7 @@ class DAVIS(data.Dataset):
             else:
                 raw_masks[f] = (raw_mask != 0).astype(np.uint8)
 
-            
+
         # make One-hot channel is object index
         oh_masks = np.zeros((self.num_frames[video],)+self.shape[video]+(num_objects,), dtype=np.uint8)
         for o in range(num_objects):
@@ -150,5 +150,5 @@ class DAVIS(data.Dataset):
 
         th_frames = torch.unsqueeze(torch.from_numpy(np.transpose(pad_frames, (3, 0, 1, 2)).copy()).float(), 0)
         th_masks = torch.unsqueeze(torch.from_numpy(np.transpose(pad_masks, (3, 0, 1, 2)).copy()).long(), 0)
-        
+
         return th_frames, th_masks, info
